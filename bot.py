@@ -217,8 +217,12 @@ class Form:
 
     def _muat(self, url):
         self.page.goto(url, wait_until="domcontentloaded")
-        self.wait(lambda: self.page.locator("#fasih-form-nav-next-button").count() > 0
-                  and "Loading" not in self.body(), 60, "form termuat")
+        # halaman login FASIH tampil tanpa mengubah alamat (/edit): kenali selama menunggu, jangan tunggu timeout
+        login = lambda: self.page.get_by_text(re.compile(r"Masuk ke akun Anda|Lanjutkan dengan SSO")).count() > 0
+        self.wait(lambda: login() or (self.page.locator("#fasih-form-nav-next-button").count() > 0
+                                      and "Loading" not in self.body()), 60, "form termuat")
+        if login() or "sso.bps.go.id" in self.page.url:
+            raise SystemExit("!! Sesi login habis. Login ulang di jendela Chrome port ini lalu jalankan lagi.")
         self.cek_sesi()
         time.sleep(1.5)
 
