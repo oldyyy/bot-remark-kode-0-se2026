@@ -562,6 +562,20 @@ def kunci_lepas(aid):
     (KUNCI_DIR / f"{aid}.lock").unlink(missing_ok=True)
 
 
+def _dicoba_dir():
+    return LOG_DIR / "sudah_dicoba" / datetime.now().strftime("%Y-%m-%d")
+
+
+def sudah_dicoba(aid):
+    """Sudah dicoba bot mana pun HARI INI (berhasil atau gagal) -> jangan dibuka lagi bot lain hari ini."""
+    return (_dicoba_dir() / aid).exists()
+
+
+def tandai_dicoba(aid):
+    _dicoba_dir().mkdir(parents=True, exist_ok=True)
+    (_dicoba_dir() / aid).touch()
+
+
 def tutup_tab(pg):
     try:
         if pg.is_closed():
@@ -692,6 +706,9 @@ def main():
                 groups[aid] = [u for u in groups[aid] if u["kunci"] not in selesai_lain]
                 if not groups[aid]:
                     continue
+            if live and not args.ulang and sudah_dicoba(aid):
+                print(f"\n[{n}/{len(ids)}] {aid} sudah dicoba hari ini (bot lain/run sebelumnya), dilewati")
+                continue
             if live and not kunci_ambil(aid, args.port):
                 print(f"\n[{n}/{len(ids)}] {aid} sedang dikerjakan bot lain, dilewati")
                 continue
@@ -718,6 +735,8 @@ def main():
                 hasil = "ERROR"
                 log_kirim(log, aid, "ERROR", str(e).splitlines()[0][:200])
             rekap_tulis(aid, status)
+            if live:
+                tandai_dicoba(aid)  # berhasil maupun gagal: bot lain tidak membukanya lagi hari ini
             kunci_lepas(aid)
             if hasil == "ERROR":
                 try:

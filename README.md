@@ -49,9 +49,17 @@ buka_chrome.bat 9341
 py bot.py --live --port 9340
 py bot.py --live --port 9341 --mundur
 ```
-Bot kedua mengerjakan dari akhir daftar. Tiap bot menandai assignment yang sedang dikerjakannya
-(`logs\sedang_dikerjakan\`) dan memeriksa log sebelum tiap assignment, jadi tidak saling tabrak dan
-bot yang berhenti bisa dijalankan lagi kapan saja. (`--shard K/N` juga tetap bisa dipakai.)
+Bot kedua mengerjakan dari akhir daftar. Untuk 3–4 bot, bagi daftarnya dengan `--shard` dan jalankan
+**bersamaan**:
+```bat
+py bot.py --live --port 9340 --shard 1/4
+py bot.py --live --port 9341 --shard 2/4
+py bot.py --live --port 9342 --shard 3/4
+py bot.py --live --port 9343 --shard 4/4
+```
+Pengaman: tiap bot menandai assignment yang sedang dikerjakannya (`logs\sedang_dikerjakan\`), dan
+assignment yang **sudah dicoba hari ini** — berhasil maupun gagal — tidak dibuka lagi oleh bot lain
+(`logs\sudah_dicoba\<tanggal>\`). Yang gagal dicoba lagi keesokan harinya, atau sekarang dengan `--ulang`.
 
 **Lewati assignment tertentu** (mis. yang selalu membuat sesi terputus): tulis assignment_id-nya, satu per baris,
 di `logs\lewati_manual.txt` (teks setelah `#` = keterangan). Bot tidak membukanya; kerjakan manual di FASIH.
