@@ -1,0 +1,8 @@
+# Data, log & sesi login - jangan pernah di-commit
+logs/
+input/
+.profil_chrome_*/
+*.xlsx
+*.csv
+*.png
+__pycache__/
