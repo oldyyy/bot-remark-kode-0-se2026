@@ -302,17 +302,22 @@ class Form:
         skor = [(difflib.SequenceMatcher(None, target, norm(c["nama"])).ratio(), c) for c in cards]
         skor.sort(key=lambda x: -x[0])
         kembar = [(sk, c) for sk, c in skor if skor and sk >= NAMA_MIN_SKOR and skor[0][0] - sk <= 0.05]
-        if skor and skor[0][0] >= NAMA_MIN_SKOR and len(kembar) == 1:
+        pesaing = [sk for sk, _ in skor[1:] if sk >= 0.6]  # kartu lain yang namanya juga mirip
+        if skor and skor[0][0] >= 0.95 and len(kembar) == 1:
             s, card = skor[0]
             cara = f"nama cocok {s:.2f}"
+        elif skor and skor[0][0] >= NAMA_MIN_SKOR and len(kembar) == 1 and not pesaing:
+            # nama tidak persis sama: hanya diterima bila tidak ada kartu lain yang juga mirip
+            # (mis. "KEBUN BURHAN" vs "KEBUN PALA (BURHAN ALIM)" & "KEBUN KELAPA (BURHAN ALIM)" -> manual)
+            s, card = skor[0]
+            cara = f"nama mirip {s:.2f}, tanpa pesaing"
         elif len(kembar) > 1 and u["index1"].isdigit() and len(u["index1"]) <= 3 and \
                 any(c["no"] == u["index1"] for _, c in kembar):
             # nama usaha kembar dalam satu assignment: index1 pendek (1/2/3) = nomor kartu
             s, card = next((sk, c) for sk, c in kembar if c["no"] == u["index1"])
             cara = f"nama kembar, kartu no {card['no']}"
-        elif len(cards) == 1 and n_sasaran_di_assignment == 1:
-            s, card = skor[0]
-            cara = f"kartu tunggal (nama {s:.2f})"
+        # catatan: aturan "kartu tunggal" dihapus - usaha bisa ada di bagian lain kuesioner
+        # (kasus "Berkebun kelapa": satu-satunya kartu BLOK II adalah usaha lain)
         else:
             daftar = "; ".join(f"{c['no']}. {c['nama']} ({sk:.2f})" for sk, c in skor[:4])
             raise PerluManual(f"kartu usaha tidak bisa dipastikan untuk '{u['nama_usaha']}': {daftar}")
@@ -417,7 +422,9 @@ def kirim(form, aid, log):
                     pass
             page.on("response", catat)
             sukses_teks = lambda: page.get_by_text("Berhasil Disubmit").count() > 0
-            sukses_server = lambda: any(200 <= s < 300 and re.search(r"submit|kirim|send", u, re.I) for _, u, s in respons)
+            # Kirim FASIH = 3 langkah: .../s3/edit/presign-url (izin unggah) -> PUT data -> .../s3/edit (simpan).
+            # Hanya langkah TERAKHIR yang membuktikan tersimpan; presign 2xx saja BUKAN bukti.
+            sukses_server = lambda: any(200 <= s < 300 and re.search(r"/s3/edit/?$", u, re.I) for _, u, s in respons)
             try:
                 form.wait(lambda: konf.count() > 0 or sukses_teks(), 20, "dialog Konfirmasi Kirim")
                 if konf.count() > 0:
