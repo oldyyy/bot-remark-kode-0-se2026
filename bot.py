@@ -53,9 +53,10 @@ ADA_KODE0 = re.compile(r"(^|[^\w])#0(?!\d)")  # "#0" tapi bukan "#01"/"#DC_00"
 NAMA_MIN_SKOR = 0.75
 STATUS_FINAL = ("SELESAI", "SUDAH_ADA")  # tidak diulang saat bot dijalankan lagi (kecuali --ulang)
 
-JEDA = {
-    "buka": (1.2, 3.0), "navigasi": (0.6, 1.5), "field": (0.5, 1.4), "tempel": (0.3, 0.9),
-    "kirim": (0.8, 2.2), "antar": (4.0, 10.0), "istirahat_tiap": (30, 50), "istirahat": (60.0, 150.0),
+JEDA = {  # detik, (min, maks) - selalu diacak
+    "buka": (2.0, 4.5), "navigasi": (1.0, 2.5), "field": (0.8, 2.0), "tempel": (0.5, 1.3),
+    "kirim": (1.5, 3.5), "antar": (8.0, 18.0), "istirahat_tiap": (20, 40), "istirahat": (90.0, 240.0),
+    "baca": (0.6, 1.4),  # jeda singkat menunggu tampilan (pengganti jeda tetap)
 }
 
 
@@ -63,6 +64,9 @@ def jeda(kind, cepat=False):
     lo, hi = JEDA[kind]
     if cepat and kind in ("antar", "istirahat"):
         lo, hi = lo / 4, hi / 4
+    # sesekali (±1 dari 8) jeda lebih panjang, seperti orang yang berhenti sejenak
+    if kind in ("navigasi", "field", "antar") and random.random() < 0.12:
+        hi *= 1.8
     time.sleep(random.uniform(lo, hi))
 
 
@@ -188,7 +192,7 @@ class Form:
                     return
             except Exception:
                 pass
-            time.sleep(0.7)
+            time.sleep(random.uniform(0.5, 1.0))
         raise FormError(f"timeout menunggu {what}")
 
     def cek_sesi(self):
@@ -253,12 +257,12 @@ class Form:
         """Buka daftar survei: tampil tanpa layar login = sesi masih aktif."""
         try:
             self.page.goto("https://fasih-sm.bps.go.id/app/surveys", wait_until="domcontentloaded")
-            time.sleep(6)
+            time.sleep(random.uniform(5, 8))
             return (self.page.get_by_text(re.compile(r"Masuk ke akun Anda|Lanjutkan dengan SSO")).count() == 0
                     and "/surveys" in self.page.url)
         except Exception:
             return False
-        time.sleep(1.5)
+        time.sleep(random.uniform(1.2, 2.6))
 
     def revoke(self):
         jeda("navigasi")
@@ -360,7 +364,7 @@ class Form:
         atau 'BELUM_ADA' (dry-run, tidak menulis)."""
         dlg = self._buka_catatan(field_id)
         d = dlg.first
-        time.sleep(0.8)
+        jeda("baca")
         isi = d.inner_text()
         if ADA_KODE0.search(isi.replace("Catatan", " ")):
             self._tutup_catatan(dlg)
@@ -392,10 +396,10 @@ def kirim(form, aid, log):
                 if tutup.count() == 0:
                     tutup = sisa.first.locator("button[aria-label=Dismiss]")
                 tutup.first.click(timeout=5000)
-                time.sleep(1)
+                jeda("baca")
             page.locator("button", has_text=re.compile(r"^\s*Kirim\s*$")).filter(visible=True).first.click()
         form.wait(lambda: page.locator("[role=dialog]").filter(has_text="Belum diisi").count() > 0, 20, "dialog Kirim")
-        time.sleep(1.5)
+        time.sleep(random.uniform(1.2, 2.6))
         dlg = page.locator("[role=dialog]").filter(has_text="Belum diisi").first
         teks = dlg.inner_text()
         m = re.search(r"GALAT\s*\n\s*(\d+)", teks, re.I)
@@ -434,7 +438,7 @@ def kirim(form, aid, log):
             log_kirim(log, aid, "TERKIRIM", f"peringatan diabaikan: {m.group(1) if m else 0}; bukti: {bukti}")
             return "TERKIRIM"
         dlg.get_by_text("Perlu diperbaiki").first.click()
-        time.sleep(1.5)
+        time.sleep(random.uniform(1.2, 2.6))
         daftar = page.locator("[role=dialog]").first.inner_text()
         g = next((g for g in GALAT_DIKENAL if g["teks"] in daftar), None)
         if g is None:
