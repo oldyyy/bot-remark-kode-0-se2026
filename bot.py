@@ -438,7 +438,10 @@ def _switch_aktif(loc):
 def perbaiki_tampilkan_anomali(form):
     form.wait(lambda: _switch_anomali(form.page) is not None, 20, "switch 'Tampilkan Anomali'")
     sw = _switch_anomali(form.page)
-    sw.scroll_into_view_if_needed(timeout=5000)
+    try:  # menggulir hanya kosmetik; jangan gagalkan perbaikan bila halaman sedang berat
+        sw.scroll_into_view_if_needed(timeout=8000)
+    except Exception:
+        pass
     time.sleep(random.uniform(0.4, 1.0))
     if not _switch_aktif(sw):
         sw.evaluate("e => (e.closest('[role=switch]') || e).click()")
