@@ -42,13 +42,19 @@ py bot.py --status                  :: progres + logs\sisa_belum_selesai.csv
 **Berhenti di tengah**: tekan `Ctrl+C`. Yang sudah terkirim tercatat; saat dijalankan lagi bot melanjutkan
 sisa (usaha berstatus SELESAI / SUDAH_ADA dilewati, `--ulang` untuk memaksa).
 
-**Paralel** (lebih cepat, maks. 3 jendela disarankan): buka Chrome tiap port dan **login di tiap jendela**
-(sesi tidak disalin), lalu di jendela CMD terpisah:
+**Paralel** (lebih cepat; **2 jendela** disarankan — 4 jendela terbukti membuat PC/server terlalu berat):
+buka Chrome tiap port dan **login di tiap jendela** (sesi tidak disalin), lalu di jendela CMD terpisah:
 ```bat
 buka_chrome.bat 9341
-py bot.py --live --port 9340 --shard 1/2
-py bot.py --live --port 9341 --shard 2/2
+py bot.py --live --port 9340
+py bot.py --live --port 9341 --mundur
 ```
+Bot kedua mengerjakan dari akhir daftar. Tiap bot menandai assignment yang sedang dikerjakannya
+(`logs\sedang_dikerjakan\`) dan memeriksa log sebelum tiap assignment, jadi tidak saling tabrak dan
+bot yang berhenti bisa dijalankan lagi kapan saja. (`--shard K/N` juga tetap bisa dipakai.)
+
+**Sesi login habis** di tengah jalan: bot berhenti dengan pesan "Sesi login habis" → login ulang di
+jendela Chrome port itu → jalankan perintah yang sama lagi.
 
 Opsi lain: `--ids a,b` (assignment tertentu), `--cepat` (jeda antar assignment diperpendek, untuk uji).
 

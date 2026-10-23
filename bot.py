@@ -506,6 +506,28 @@ def proses_assignment(form, aid, usaha, live, log):
     return hasil, status
 
 
+KUNCI_DIR = LOG_DIR / "sedang_dikerjakan"
+KUNCI_KEDALUWARSA = 30 * 60  # detik; kunci lebih tua dari ini dianggap sisa bot yang mati
+
+
+def kunci_ambil(aid, port):
+    """Tandai assignment sedang dikerjakan bot ini. False bila sedang dikerjakan bot lain."""
+    KUNCI_DIR.mkdir(parents=True, exist_ok=True)
+    f = KUNCI_DIR / f"{aid}.lock"
+    if f.exists() and time.time() - f.stat().st_mtime > KUNCI_KEDALUWARSA:
+        f.unlink(missing_ok=True)
+    try:
+        with open(f, "x") as fh:
+            fh.write(str(port))
+        return True
+    except FileExistsError:
+        return False
+
+
+def kunci_lepas(aid):
+    (KUNCI_DIR / f"{aid}.lock").unlink(missing_ok=True)
+
+
 def tutup_tab(pg):
     try:
         if pg.is_closed():
@@ -552,6 +574,7 @@ def main():
     ap.add_argument("--shard", help="bagian K/N dari daftar, mis. 2/3 untuk bot ke-2 dari 3")
     ap.add_argument("--cepat", action="store_true")
     ap.add_argument("--ulang", action="store_true", help="jangan lewati yang sudah SELESAI/SUDAH_ADA di log")
+    ap.add_argument("--mundur", action="store_true", help="kerjakan dari akhir daftar (bot kedua tanpa --shard)")
     args = ap.parse_args()
     live = args.live and not args.dry_run
 
@@ -577,6 +600,8 @@ def main():
         ids = [a for a in ids if groups[a]]
         if lewat:
             print(f"Dilewati {lewat} usaha yang sudah SELESAI / sudah ada #0 di log")
+    if args.mundur:
+        ids.reverse()
     if args.limit:
         ids = ids[:args.limit]
 
@@ -622,6 +647,15 @@ def main():
         tab_lama, tab_error, error_beruntun = None, [], 0
         istirahat_berikut = random.randint(*JEDA["istirahat_tiap"])
         for n, aid in enumerate(ids, 1):
+            # bot lain (port lain) bisa sudah/sedang mengerjakan assignment ini
+            if not args.ulang:
+                selesai_lain = baca_rekap()
+                groups[aid] = [u for u in groups[aid] if u["kunci"] not in selesai_lain]
+                if not groups[aid]:
+                    continue
+            if live and not kunci_ambil(aid, args.port):
+                print(f"\n[{n}/{len(ids)}] {aid} sedang dikerjakan bot lain, dilewati")
+                continue
             print(f"\n[{n}/{len(ids)}] {aid} ({len(groups[aid])} usaha)")
             page = ctx.new_page()
             form.page = page
@@ -645,6 +679,7 @@ def main():
                 hasil = "ERROR"
                 log_kirim(log, aid, "ERROR", str(e).splitlines()[0][:200])
             rekap_tulis(aid, status)
+            kunci_lepas(aid)
             if hasil == "ERROR":
                 try:
                     page.screenshot(path=str(LOG_DIR / f"error_{aid}.png"))
