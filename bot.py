@@ -364,30 +364,36 @@ def kirim(form, aid, log):
         if (int(m.group(1)) if m else 0) == 0:
             dlg.locator("button", has_text=re.compile(r"^\s*Kirim\s*$")).first.click()
             konf = page.locator("[role=dialog], [role=alertdialog]").filter(has_text="Konfirmasi Kirim")
-            # cek teks sukses lewat elemen (cepat), bukan membaca seluruh isi halaman yang besar
-            sukses = lambda: page.get_by_text("Berhasil Disubmit").count() > 0
+            # Bukti sukses: (a) teks "Berhasil Disubmit" (dicek lewat elemen, bukan membaca seluruh halaman
+            # besar yang sering timeout), atau (b) respons server 2xx atas permintaan kirim (POST/PUT).
+            respons = []
+            def catat(r):
+                try:
+                    if r.request.method in ("POST", "PUT", "PATCH") and "bps.go.id" in r.url:
+                        respons.append((r.request.method, r.url.split("?")[0], r.status))
+                except Exception:
+                    pass
+            page.on("response", catat)
+            sukses_teks = lambda: page.get_by_text("Berhasil Disubmit").count() > 0
+            sukses_server = lambda: any(200 <= s < 300 and re.search(r"submit|kirim|send", u, re.I) for _, u, s in respons)
             try:
-                form.wait(lambda: konf.count() > 0 or sukses(), 20, "dialog Konfirmasi Kirim")
+                form.wait(lambda: konf.count() > 0 or sukses_teks(), 20, "dialog Konfirmasi Kirim")
                 if konf.count() > 0:
                     time.sleep(random.uniform(0.8, 1.8))
                     konf.first.locator("button", has_text=re.compile(r"^\s*Konfirmasi\s*$")).first.click()
                 # server bisa lambat (terutama saat beberapa bot paralel): tunggu lebih lama
-                form.wait(sukses, 90, "'Berhasil Disubmit'")
+                form.wait(lambda: sukses_teks() or sukses_server(), 90, "'Berhasil Disubmit'")
+                bukti = "dialog sukses" if sukses_teks() else "respons server 2xx"
             except FormError:
                 shot = LOG_DIR / f"kirim_{aid}.png"
                 page.screenshot(path=str(shot))
-                # pastikan dari server: muat ulang /edit; tanpa tombol Kirim = sudah terkirim (terkunci)
-                try:
-                    form._muat(EDIT_URL.format(sid=SURVEY_ID, aid=aid))
-                    if not form.bisa_edit():
-                        log_kirim(log, aid, "TERKIRIM", "dialog sukses tidak terbaca; dimuat ulang: assignment sudah terkunci (terkirim)")
-                        return "TERKIRIM"
-                except FormError:
-                    pass
-                log_kirim(log, aid, "ERROR", f"tidak muncul 'Berhasil Disubmit' & masih bisa diedit; screenshot {shot.name}")
+                jejak = "; ".join(f"{m} {u.split('bps.go.id')[-1]} {s}" for m, u, s in respons[-5:]) or "tanpa POST/PUT"
+                log_kirim(log, aid, "ERROR", f"tidak muncul 'Berhasil Disubmit'; jaringan: {jejak}; screenshot {shot.name}")
                 return "ERROR"
+            finally:
+                page.remove_listener("response", catat)
             m = re.search(r"PERINGATAN\s*\n\s*(\d+)", teks, re.I)
-            log_kirim(log, aid, "TERKIRIM", f"peringatan diabaikan: {m.group(1) if m else 0}")
+            log_kirim(log, aid, "TERKIRIM", f"peringatan diabaikan: {m.group(1) if m else 0}; bukti: {bukti}")
             return "TERKIRIM"
         dlg.get_by_text("Perlu diperbaiki").first.click()
         time.sleep(1.5)
