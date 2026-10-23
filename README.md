@@ -53,6 +53,9 @@ Bot kedua mengerjakan dari akhir daftar. Tiap bot menandai assignment yang sedan
 (`logs\sedang_dikerjakan\`) dan memeriksa log sebelum tiap assignment, jadi tidak saling tabrak dan
 bot yang berhenti bisa dijalankan lagi kapan saja. (`--shard K/N` juga tetap bisa dipakai.)
 
+**Lewati assignment tertentu** (mis. yang selalu membuat sesi terputus): tulis assignment_id-nya, satu per baris,
+di `logs\lewati_manual.txt` (teks setelah `#` = keterangan). Bot tidak membukanya; kerjakan manual di FASIH.
+
 **Sesi login habis** di tengah jalan: bot berhenti dengan pesan "Sesi login habis" → login ulang di
 jendela Chrome port itu → jalankan perintah yang sama lagi.
 

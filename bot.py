@@ -108,6 +108,17 @@ def load_targets(path):
     return groups
 
 
+LEWATI_FILE = LOG_DIR / "lewati_manual.txt"
+
+
+def baca_lewati():
+    """assignment_id yang sengaja tidak diproses bot (mis. halaman edit-nya memutus sesi) -> dikerjakan manual.
+    Satu id per baris; teks setelah '#' diabaikan."""
+    if not LEWATI_FILE.exists():
+        return set()
+    return {ln.split("#")[0].strip() for ln in LEWATI_FILE.read_text(encoding="utf-8").splitlines() if ln.split("#")[0].strip()}
+
+
 def baca_rekap():
     """kunci -> status final dari semua logs/rekap*.csv"""
     done = {}
@@ -623,6 +634,11 @@ def main():
         ids = [a for a in ids if groups[a]]
         if lewat:
             print(f"Dilewati {lewat} usaha yang sudah SELESAI / sudah ada #0 di log")
+    lewati = baca_lewati()
+    if lewati:
+        n_lw = sum(1 for a in ids if a in lewati)
+        ids = [a for a in ids if a not in lewati]
+        print(f"Dilewati {n_lw} assignment dari {LEWATI_FILE.name} (kerjakan manual)")
     if args.mundur:
         ids.reverse()
     if args.limit:
