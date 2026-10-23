@@ -231,9 +231,22 @@ class Form:
                 break
             except FormError:
                 if coba == 1 or "sso.bps.go.id" in self.page.url:
+                    if self.sesi_aktif():
+                        # sesi sehat, hanya assignment ini yang menampilkan layar login -> lewati, cek manual
+                        raise FormError("halaman edit assignment ini menampilkan layar login padahal sesi aktif; cek manual")
                     raise SystemExit("!! Sesi login habis. Login ulang di jendela Chrome port ini lalu jalankan lagi.")
                 time.sleep(random.uniform(3, 6))
         self.cek_sesi()
+
+    def sesi_aktif(self):
+        """Buka daftar survei: tampil tanpa layar login = sesi masih aktif."""
+        try:
+            self.page.goto("https://fasih-sm.bps.go.id/app/surveys", wait_until="domcontentloaded")
+            time.sleep(6)
+            return (self.page.get_by_text(re.compile(r"Masuk ke akun Anda|Lanjutkan dengan SSO")).count() == 0
+                    and "/surveys" in self.page.url)
+        except Exception:
+            return False
         time.sleep(1.5)
 
     def revoke(self):
