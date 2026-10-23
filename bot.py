@@ -369,8 +369,13 @@ def kirim(form, aid, log):
                 if konf.count() > 0:
                     time.sleep(random.uniform(0.8, 1.8))
                     konf.first.locator("button", has_text=re.compile(r"^\s*Konfirmasi\s*$")).first.click()
-                form.wait(lambda: "Berhasil Disubmit" in form.body(), 30, "'Berhasil Disubmit'")
+                # server bisa lambat (terutama saat beberapa bot paralel): tunggu lebih lama
+                form.wait(lambda: "Berhasil Disubmit" in form.body(), 90, "'Berhasil Disubmit'")
             except FormError:
+                time.sleep(5)
+                if "Berhasil Disubmit" in form.body():  # muncul tepat setelah batas tunggu
+                    log_kirim(log, aid, "TERKIRIM", "konfirmasi 'Berhasil Disubmit' terlambat muncul")
+                    return "TERKIRIM"
                 shot = LOG_DIR / f"kirim_{aid}.png"
                 page.screenshot(path=str(shot))
                 log_kirim(log, aid, "ERROR", f"tidak muncul 'Berhasil Disubmit'; screenshot {shot.name}")
