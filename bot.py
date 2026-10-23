@@ -364,21 +364,27 @@ def kirim(form, aid, log):
         if (int(m.group(1)) if m else 0) == 0:
             dlg.locator("button", has_text=re.compile(r"^\s*Kirim\s*$")).first.click()
             konf = page.locator("[role=dialog], [role=alertdialog]").filter(has_text="Konfirmasi Kirim")
+            # cek teks sukses lewat elemen (cepat), bukan membaca seluruh isi halaman yang besar
+            sukses = lambda: page.get_by_text("Berhasil Disubmit").count() > 0
             try:
-                form.wait(lambda: konf.count() > 0 or "Berhasil Disubmit" in form.body(), 20, "dialog Konfirmasi Kirim")
+                form.wait(lambda: konf.count() > 0 or sukses(), 20, "dialog Konfirmasi Kirim")
                 if konf.count() > 0:
                     time.sleep(random.uniform(0.8, 1.8))
                     konf.first.locator("button", has_text=re.compile(r"^\s*Konfirmasi\s*$")).first.click()
                 # server bisa lambat (terutama saat beberapa bot paralel): tunggu lebih lama
-                form.wait(lambda: "Berhasil Disubmit" in form.body(), 90, "'Berhasil Disubmit'")
+                form.wait(sukses, 90, "'Berhasil Disubmit'")
             except FormError:
-                time.sleep(5)
-                if "Berhasil Disubmit" in form.body():  # muncul tepat setelah batas tunggu
-                    log_kirim(log, aid, "TERKIRIM", "konfirmasi 'Berhasil Disubmit' terlambat muncul")
-                    return "TERKIRIM"
                 shot = LOG_DIR / f"kirim_{aid}.png"
                 page.screenshot(path=str(shot))
-                log_kirim(log, aid, "ERROR", f"tidak muncul 'Berhasil Disubmit'; screenshot {shot.name}")
+                # pastikan dari server: muat ulang /edit; tanpa tombol Kirim = sudah terkirim (terkunci)
+                try:
+                    form._muat(EDIT_URL.format(sid=SURVEY_ID, aid=aid))
+                    if not form.bisa_edit():
+                        log_kirim(log, aid, "TERKIRIM", "dialog sukses tidak terbaca; dimuat ulang: assignment sudah terkunci (terkirim)")
+                        return "TERKIRIM"
+                except FormError:
+                    pass
+                log_kirim(log, aid, "ERROR", f"tidak muncul 'Berhasil Disubmit' & masih bisa diedit; screenshot {shot.name}")
                 return "ERROR"
             m = re.search(r"PERINGATAN\s*\n\s*(\d+)", teks, re.I)
             log_kirim(log, aid, "TERKIRIM", f"peringatan diabaikan: {m.group(1) if m else 0}")
@@ -445,7 +451,8 @@ def log_kirim(log, aid, status, ket):
 
 def proses_assignment(form, aid, usaha, live, log):
     """Kembalikan (hasil_assignment, {kunci: status})."""
-    if form.buka(aid, boleh_revoke=live):
+    direvoke = form.buka(aid, boleh_revoke=live)
+    if direvoke:
         log_kirim(log, aid, "REVOKE", "assignment terkunci -> Revoke (Konfirmasi) -> /edit dibuka ulang")
     status = {}
     for u in usaha:
@@ -472,12 +479,17 @@ def proses_assignment(form, aid, usaha, live, log):
         status[u["kunci"]] = rec["status"]
     if not live:
         return ("ERROR" if "ERROR" in status.values() else "OK"), status
-    if "TERTULIS" not in status.values():
+    # Kirim bila ada catatan baru, bila tadi di-revoke (status harus dipulihkan), atau bila #0 sudah ada
+    # di assignment yang masih bisa diedit (catatan dari run sebelumnya mungkin tersimpan tapi belum terkirim).
+    perlu_kirim = "TERTULIS" in status.values() or direvoke or "SUDAH_ADA" in status.values()
+    if not perlu_kirim:
         log_kirim(log, aid, "DILEWATI", "tidak ada catatan baru, tidak dikirim")
         return ("ERROR" if "ERROR" in status.values() else "SKIP"), status
     hasil = kirim(form, aid, log)
     if hasil == "TERKIRIM":
         status = {k: ("SELESAI" if v == "TERTULIS" else v) for k, v in status.items()}
+    else:  # belum terkirim: jangan dianggap final, diproses lagi pada run berikutnya
+        status = {k: ("BELUM_TERKIRIM" if v in ("TERTULIS", "SUDAH_ADA") else v) for k, v in status.items()}
     return hasil, status
 
 
