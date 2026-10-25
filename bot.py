@@ -647,19 +647,25 @@ TUNGGU_LOGIN = 60 * 60  # detik; menunggu login ulang manual paling lama segini,
 
 
 def cek_sesi_api(ctx, aid):
-    """'AKTIF' / 'BOT' (halaman Bot Detected) / 'HABIS'. Lewat API dengan cookie browser: tidak memindahkan tab
-    mana pun, jadi tidak mengganggu jendela tempat Anda sedang login."""
-    try:
-        r = ctx.request.get(FASIH + ASSIGNMENT_API.format(aid=aid), max_redirects=0, timeout=20000)
-        t = r.text()
-    except Exception:
-        return "HABIS"
-    if "Bot Detected" in t[:300]:
-        return "BOT"
-    try:
-        return "AKTIF" if r.ok and json.loads(t).get("success") else "HABIS"
-    except ValueError:
-        return "HABIS"
+    """'AKTIF' / 'BOT' (halaman Bot Detected) / 'HABIS'. fetch() dari dalam tab FASIH yang terbuka (seperti
+    permintaan halaman itu sendiri): tidak memindahkan tab, jadi tidak mengganggu jendela tempat Anda login.
+    Jangan pakai ctx.request: permintaan di luar tab ditandai server sebagai 'Bot Detected'."""
+    hasil = "HABIS"
+    for pg in [x for x in ctx.pages if not x.is_closed() and x.url.startswith(FASIH)]:
+        try:
+            t = pg.evaluate("async (u) => { const r = await fetch(u, {credentials: 'same-origin'});"
+                            " return r.ok ? await r.text() : ''; }", ASSIGNMENT_API.format(aid=aid))
+        except Exception:
+            continue
+        if "Bot Detected" in t[:300]:
+            hasil = "BOT"
+            continue
+        try:
+            if json.loads(t).get("success"):
+                return "AKTIF"
+        except ValueError:
+            pass
+    return hasil
 
 
 def tunggu_login_manual(ctx, aid, port):
