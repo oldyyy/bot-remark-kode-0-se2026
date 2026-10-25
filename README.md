@@ -18,7 +18,9 @@ Satu baris = satu usaha (`kunci` = assignment_id|index1). Diproses bila:
 ## Alur per assignment
 
 1. Buka `/edit`. Terkunci (tanpa tombol Kirim) → **Revoke** → buka ulang (hanya mode live).
-2. Blok **SE2026 - L BLOK II** → kartu usaha yang namanya cocok dengan `nama_usaha`.
+2. Blok **SE2026 - L BLOK II** → kartu usaha **berdasarkan index usaha** (`kunci` = assignment_id|index1):
+   nama usaha untuk index itu diambil dari data assignment di server, lalu dibuka kartu bernama sama.
+   Index tidak ada di data server (usaha dihapus/diganti) → `PERLU_MANUAL`.
 3. Rincian 27.a (atau 31.a) → ikon **Catatan** → bila `#0` sudah ada, dilewati; bila belum, tulis `#0` → Simpan.
 4. Ada catatan baru → **Kirim** (galat "Tampilkan Anomali" diperbaiki otomatis; galat lain → dilewati & dicatat).
 

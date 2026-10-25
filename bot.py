@@ -25,6 +25,7 @@ Opsi: --file XLSX, --port 9340, --shard K/N, --ids a,b, --ulang, --cepat
 import argparse
 import csv
 import difflib
+import json
 import random
 import re
 import sys
@@ -293,11 +294,60 @@ class Form:
         item.evaluate("e => (e.closest('a,button,[role=button],li,[tabindex]') || e).click()")
         jeda("navigasi")
 
-    def buka_usaha(self, u, n_sasaran_di_assignment):
-        """Buka kartu usaha di BLOK II yang cocok dengan nama usaha di Excel."""
+    def peta_usaha(self, aid):
+        """index usaha (index1) -> nama usaha, langsung dari data assignment di server
+        (jawaban berkunci 'nama_usaha#<index1>'). {} bila tidak terbaca."""
+        url = f"/app/api/assignment-general/api/assignment/get-by-assignment-id?assignmentId={aid}"
+        try:
+            d = self.page.evaluate("async (u) => (await fetch(u, {credentials: 'same-origin'})).json()", url)
+            isi = json.loads(d["data"]["data"]) if isinstance(d["data"].get("data"), str) else d["data"]["data"]
+            peta = {}
+            for a in isi.get("answers", []):
+                m = re.match(r"nama_usaha(_edit)?#(\w+)$", a.get("dataKey", ""))
+                if m and isinstance(a.get("answer"), str) and a["answer"].strip():
+                    if m.group(1) or m.group(2) not in peta:  # nama_usaha_edit (hasil koreksi) diutamakan
+                        peta[m.group(2)] = a["answer"].strip()
+            return peta
+        except Exception:
+            return {}
+
+    def buka_usaha(self, u, aid):
+        """Buka kartu usaha di BLOK II untuk usaha sasaran.
+        Utama: index usaha dari Excel (kunci) -> nama usaha di data server -> kartu bernama sama persis.
+        Cadangan (data server tak terbaca): pencocokan nama Excel yang ketat."""
+        peta = self.peta_usaha(aid)
         self.ke_blok(BLOK_USAHA)
         self.wait(lambda: len(self.page.evaluate(JS_CARDS)) > 0, 20, "daftar kartu usaha")
         cards = self.page.evaluate(JS_CARDS)
+        if peta:
+            idx = u["index1"]
+            if idx not in peta:
+                raise PerluManual(f"index usaha {idx} ('{u['nama_usaha']}') tidak ada di data assignment "
+                                  f"(usaha di FASIH: {', '.join(f'{k}={v}' for k, v in sorted(peta.items()))})")
+            # "<...>" di nama usaha dianggap tag HTML oleh halaman, jadi tidak tampil di kartu
+            tampil = lambda s: norm(re.sub(r"<[^>]*>", " ", s))
+            nama_srv = tampil(peta[idx])
+            sama = [c for c in cards if tampil(c["nama"]) == nama_srv]
+            if not sama:  # cadangan: kartu yang sangat mirip dengan nama DI SERVER (bukan nama Excel)
+                mirip = [(difflib.SequenceMatcher(None, nama_srv, tampil(c["nama"])).ratio(), c) for c in cards]
+                mirip = [x for x in sorted(mirip, key=lambda x: -x[0]) if x[0] >= 0.9]
+                if len(mirip) == 1:
+                    sama = [mirip[0][1]]
+            if len(sama) == 1:
+                card, cara = sama[0], f"index {idx} = '{peta[idx]}'"
+            elif len(sama) > 1:
+                # nama kembar: urutan kartu mengikuti urutan index usaha yang bernama sama
+                urut = [k for k in sorted(peta, key=lambda k: (len(k), k)) if norm(peta[k]) == nama_srv]
+                if len(urut) != len(sama):
+                    raise PerluManual(f"nama kembar '{peta[idx]}' tidak bisa dipetakan ke kartu")
+                card, cara = sama[urut.index(idx)], f"index {idx}, nama kembar ke-{urut.index(idx) + 1}"
+            else:
+                raise PerluManual(f"kartu bernama '{peta[idx]}' (index {idx}) tidak ada di BLOK II")
+            self.page.locator("[data-nested-view]").nth(card["idx"]).evaluate("e => e.click()")
+            self.wait(lambda: any(LABEL_TAHUNAN.search(f["label"]) or LABEL_BULANAN.search(f["label"])
+                                  for f in self.page.evaluate(JS_FIELDS)), 25, "rincian 27.a / 31.a")
+            jeda("navigasi")
+            return card["nama"], cara
         target = norm(u["nama_usaha"])
         skor = [(difflib.SequenceMatcher(None, target, norm(c["nama"])).ratio(), c) for c in cards]
         skor.sort(key=lambda x: -x[0])
@@ -517,7 +567,7 @@ def proses_assignment(form, aid, usaha, live, log):
         rec = {"waktu": datetime.now().strftime("%H:%M:%S"), "assignment_id": aid, "kunci": u["kunci"],
                "nama_usaha": u["nama_usaha"], "rincian": "", "status": "", "keterangan": ""}
         try:
-            nama_form, cara = form.buka_usaha(u, len(usaha))
+            nama_form, cara = form.buka_usaha(u, aid)
             f, rincian = form.field_pendapatan()
             rec["rincian"] = rincian
             rec["keterangan"] = f"kartu '{nama_form}' ({cara})"
