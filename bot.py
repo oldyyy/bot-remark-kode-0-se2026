@@ -40,7 +40,9 @@ from playwright.sync_api import sync_playwright
 sys.stdout.reconfigure(encoding="utf-8", line_buffering=True)
 
 SURVEY_ID = "fd68e454-ba45-4b85-8205-f3bf777ded24"
-EDIT_URL = "https://fasih-sm.bps.go.id/app/assignment/{sid}/{aid}/edit"
+FASIH = "https://fasih-sm.bps.go.id"
+EDIT_URL = FASIH + "/app/assignment/{sid}/{aid}/edit"
+ASSIGNMENT_API = "/app/api/assignment-general/api/assignment/get-by-assignment-id?assignmentId={aid}"
 BASE = Path(__file__).resolve().parent
 LOG_DIR = BASE / "logs"
 INPUT_DIRS = [BASE / "input", BASE.parents[1] / "fasih-scraper" / "output" / "rasio_ntb"]
@@ -174,6 +176,10 @@ class Berhenti(Exception):
     """Kondisi tak terduga setelah tindakan tulis -> seluruh run dihentikan."""
 
 
+class SesiHabis(Exception):
+    """Layar login tampil & sesi tidak aktif: bot menunggu login ulang MANUAL, lalu melanjutkan."""
+
+
 class Form:
     def __init__(self, page, cepat):
         self.page = page
@@ -199,7 +205,7 @@ class Form:
     def cek_sesi(self):
         txt = self.body()
         if "Masuk ke akun Anda" in txt or "sso.bps.go.id" in self.page.url:
-            raise SystemExit("!! Sesi login habis. Login ulang di Chrome lalu jalankan lagi.")
+            raise SesiHabis("layar login tampil")
         if re.search(r"captcha|bukan bot|human visitor|support id is", txt, re.I):
             raise SystemExit("!! Muncul verifikasi/CAPTCHA. Bot berhenti; selesaikan manual lalu jalankan lagi.")
 
@@ -250,14 +256,14 @@ class Form:
                     if self.sesi_aktif():
                         # sesi sehat, hanya assignment ini yang menampilkan layar login -> lewati, cek manual
                         raise FormError("halaman edit assignment ini menampilkan layar login padahal sesi aktif; cek manual")
-                    raise SystemExit("!! Sesi login habis. Login ulang di jendela Chrome port ini lalu jalankan lagi.")
+                    raise SesiHabis("layar login tetap tampil")
                 time.sleep(random.uniform(3, 6))
         self.cek_sesi()
 
     def sesi_aktif(self):
         """Buka daftar survei: tampil tanpa layar login = sesi masih aktif."""
         try:
-            self.page.goto("https://fasih-sm.bps.go.id/app/surveys", wait_until="domcontentloaded")
+            self.page.goto(FASIH + "/app/surveys", wait_until="domcontentloaded")
             time.sleep(random.uniform(5, 8))
             return (self.page.get_by_text(re.compile(r"Masuk ke akun Anda|Lanjutkan dengan SSO")).count() == 0
                     and "/surveys" in self.page.url)
@@ -297,7 +303,7 @@ class Form:
     def peta_usaha(self, aid):
         """index usaha (index1) -> nama usaha, langsung dari data assignment di server
         (jawaban berkunci 'nama_usaha#<index1>'). {} bila tidak terbaca."""
-        url = f"/app/api/assignment-general/api/assignment/get-by-assignment-id?assignmentId={aid}"
+        url = ASSIGNMENT_API.format(aid=aid)
         try:
             d = self.page.evaluate("async (u) => (await fetch(u, {credentials: 'same-origin'})).json()", url)
             isi = json.loads(d["data"]["data"]) if isinstance(d["data"].get("data"), str) else d["data"]["data"]
@@ -579,7 +585,7 @@ def proses_assignment(form, aid, usaha, live, log):
         except PerluManual as e:
             rec["status"], rec["keterangan"] = "PERLU_MANUAL", str(e)[:300]
         except Exception as e:
-            if isinstance(e, (SystemExit, Berhenti)):
+            if isinstance(e, (SystemExit, Berhenti, SesiHabis)):
                 raise
             rec["status"] = "ERROR"
             rec["keterangan"] = (rec["keterangan"] + "; " if rec["keterangan"] else "") + str(e).splitlines()[0][:200]
@@ -635,6 +641,50 @@ def sudah_dicoba(aid):
 def tandai_dicoba(aid):
     _dicoba_dir().mkdir(parents=True, exist_ok=True)
     (_dicoba_dir() / aid).touch()
+
+
+TUNGGU_LOGIN = 60 * 60  # detik; menunggu login ulang manual paling lama segini, lalu berhenti
+
+
+def cek_sesi_api(ctx, aid):
+    """'AKTIF' / 'BOT' (halaman Bot Detected) / 'HABIS'. Lewat API dengan cookie browser: tidak memindahkan tab
+    mana pun, jadi tidak mengganggu jendela tempat Anda sedang login."""
+    try:
+        r = ctx.request.get(FASIH + ASSIGNMENT_API.format(aid=aid), max_redirects=0, timeout=20000)
+        t = r.text()
+    except Exception:
+        return "HABIS"
+    if "Bot Detected" in t[:300]:
+        return "BOT"
+    try:
+        return "AKTIF" if r.ok and json.loads(t).get("success") else "HABIS"
+    except ValueError:
+        return "HABIS"
+
+
+def tunggu_login_manual(ctx, aid, port):
+    """Bot TIDAK login sendiri: menunggu Anda login ulang di jendela Chrome port ini, lalu menutup tab lama."""
+    print(f"!! Sesi login habis di port {port}. Silakan login ulang MANUAL di jendela Chrome port ini "
+          f"(Lanjutkan dengan SSO -> Log In). Bot menunggu maks. {TUNGGU_LOGIN // 60} menit lalu melanjutkan sendiri.",
+          flush=True)
+    batas, lapor_bot = time.time() + TUNGGU_LOGIN, False
+    while time.time() < batas:
+        time.sleep(random.uniform(20, 40))
+        st = cek_sesi_api(ctx, aid)
+        if st == "AKTIF":
+            break
+        if st == "BOT" and not lapor_bot:
+            print("!! Server menampilkan halaman 'Bot Detected'. Sebaiknya hentikan bot (Ctrl+C) & lanjutkan nanti.",
+                  flush=True)
+            lapor_bot = True
+    else:
+        raise SystemExit(f"!! Sesi tidak aktif lagi dalam {TUNGGU_LOGIN // 60} menit. Bot berhenti; jalankan lagi setelah login.")
+    # tab lama (termasuk halaman login) ditutup supaya Chrome tidak berat; satu tab disisakan agar jendela tetap ada
+    halaman = [x for x in ctx.pages if not x.is_closed()]
+    for pg in halaman[:-1]:
+        tutup_tab(pg)
+    print(f"== Sesi aktif lagi; {max(len(halaman) - 1, 0)} tab lama ditutup, melanjutkan.", flush=True)
+    time.sleep(random.uniform(5, 10))
 
 
 def tutup_tab(pg):
@@ -760,6 +810,7 @@ def main():
         form = Form(None, args.cepat)
         tab_lama, tab_error, error_beruntun = None, [], 0
         istirahat_berikut = random.randint(*JEDA["istirahat_tiap"])
+        sesi_ulang = 0
         for n, aid in enumerate(ids, 1):
             # bot lain (port lain) bisa sudah/sedang mengerjakan assignment ini
             if not args.ulang:
@@ -790,11 +841,23 @@ def main():
                 page.screenshot(path=str(LOG_DIR / f"berhenti_{aid}.png"))
                 print("!! Run dihentikan:", e)
                 break
+            except SesiHabis:
+                # assignment ini belum dikerjakan tuntas: kunci dilepas, TIDAK ditandai sudah dicoba,
+                # lalu diulang setelah Anda login lagi (paling banyak 3x berturut-turut di assignment yang sama)
+                kunci_lepas(aid)
+                tab_error, tab_lama = [], None
+                sesi_ulang += 1
+                if sesi_ulang > 3:
+                    raise SystemExit(f"!! Sesi putus 3x berturut-turut di {aid}. Bot berhenti; cek manual.")
+                tunggu_login_manual(ctx, aid, args.port)
+                ids.insert(n, aid)
+                continue
             except Exception as e:
                 if isinstance(e, SystemExit):
                     raise
                 hasil = "ERROR"
                 log_kirim(log, aid, "ERROR", str(e).splitlines()[0][:200])
+            sesi_ulang = 0
             rekap_tulis(aid, status)
             if live:
                 tandai_dicoba(aid)  # berhasil maupun gagal: bot lain tidak membukanya lagi hari ini

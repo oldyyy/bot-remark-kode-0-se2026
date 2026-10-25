@@ -66,8 +66,11 @@ assignment yang **sudah dicoba hari ini** — berhasil maupun gagal — tidak di
 **Lewati assignment tertentu** (mis. yang selalu membuat sesi terputus): tulis assignment_id-nya, satu per baris,
 di `logs\lewati_manual.txt` (teks setelah `#` = keterangan). Bot tidak membukanya; kerjakan manual di FASIH.
 
-**Sesi login habis** di tengah jalan: bot berhenti dengan pesan "Sesi login habis" → login ulang di
-jendela Chrome port itu → jalankan perintah yang sama lagi.
+**Sesi login habis** di tengah jalan: bot **menunggu** (maks. 60 menit) dengan pesan "Sesi login habis di port …".
+Login ulang **manual** di jendela Chrome port itu (Lanjutkan dengan SSO → Log In) — bot tidak login sendiri.
+Begitu sesi aktif lagi, bot menutup tab-tab lama lalu mengulang assignment yang terputus. Bila server menampilkan
+halaman **"Bot Detected"**, bot memberi peringatan: sebaiknya hentikan (Ctrl+C), kurangi jumlah bot, lanjutkan nanti.
+Pengalaman: 3–4 bot bersamaan membuat sesi sering putus; **1–2 bot** jauh lebih stabil.
 
 Opsi lain: `--ids a,b` (assignment tertentu), `--cepat` (jeda antar assignment diperpendek, untuk uji).
 
